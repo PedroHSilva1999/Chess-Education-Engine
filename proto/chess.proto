@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package chess.education.v1;
+
+service ChessEducation {
+  rpc CreateSession(CreateSessionRequest) returns (SessionResponse);
+  rpc PlayMove(PlayMoveRequest) returns (PlayMoveResponse);
+  rpc GetSession(GetSessionRequest) returns (SessionResponse);
+  rpc GetHint(HintRequest) returns (HintResponse);
+  rpc ResetSession(ResetSessionRequest) returns (SessionResponse);
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+}
+
+message CreateSessionRequest {
+  string mode = 1;
+  string exercise_type = 2;
+  string difficulty = 3;
+  uint32 max_moves = 4;
+  string fen = 5;
+  string piece = 6;
+  string target = 7;
+  string request_json = 8;
+}
+
+message GetSessionRequest { string session_id = 1; }
+
+message PlayMoveRequest {
+  string session_id = 1;
+  string from = 2;
+  string to = 3;
+  string promotion = 4;
+}
+
+message HintRequest { string session_id = 1; }
+message ResetSessionRequest { string session_id = 1; }
+message DeleteSessionRequest { string session_id = 1; }
+
+message SessionResponse {
+  string session_id = 1;
+  string status = 2;
+  string fen = 3;
+  string player_color = 4;
+  string objective_type = 5;
+  string ui_url = 6;
+  string json = 7;
+}
+
+message PlayMoveResponse {
+  bool valid = 1;
+  string status = 2;
+  string fen = 3;
+  bool objective_completed = 4;
+  string feedback_key = 5;
+  string json = 6;
+}
+
+message HintResponse {
+  uint32 level = 1;
+  string hint_type = 2;
+  string json = 3;
+}
+
+message DeleteSessionResponse { bool deleted = 1; }

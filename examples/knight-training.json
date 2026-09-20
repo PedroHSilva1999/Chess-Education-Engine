@@ -1,0 +1,10 @@
+{
+  "mode": "piece_training",
+  "piece": "knight",
+  "difficulty": "beginner",
+  "config": {
+    "show_legal_moves": true,
+    "number_of_tasks": 1,
+    "target": "c3"
+  }
+}

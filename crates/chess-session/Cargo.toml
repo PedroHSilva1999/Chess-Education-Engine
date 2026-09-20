@@ -1,0 +1,19 @@
+[package]
+name = "chess-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chess-core = { path = "../chess-core" }
+chess-education = { path = "../chess-education" }
+chess-engine = { path = "../chess-engine" }
+chrono.workspace = true
+dashmap.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+

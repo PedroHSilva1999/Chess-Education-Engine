@@ -1,0 +1,11 @@
+[package]
+name = "chess-education"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+chess-core = { path = "../chess-core" }
+serde.workspace = true
+thiserror.workspace = true

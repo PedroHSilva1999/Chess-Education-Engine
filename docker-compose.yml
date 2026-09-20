@@ -1,0 +1,20 @@
+services:
+  chess-education-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: 0.0.0.0:8080
+      GRPC_ADDR: 0.0.0.0:50051
+      RUST_LOG: chess_api=info,tower_http=info
+      CORS_ORIGIN: "*"
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m

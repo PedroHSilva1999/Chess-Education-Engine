@@ -1,0 +1,14 @@
+{
+  "mode": "exercise",
+  "exercise": {
+    "type": "checkmate",
+    "difficulty": "beginner",
+    "max_moves": 1,
+    "rules": {
+      "allow_undo": false,
+      "show_legal_moves": true,
+      "show_check": true,
+      "move_limit": 8
+    }
+  }
+}

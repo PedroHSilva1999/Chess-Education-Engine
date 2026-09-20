@@ -1,0 +1,19 @@
+[package]
+name = "chess-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+shakmaty.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion = "0.8.2"
+proptest = "1.11.0"
+
+[[bench]]
+name = "rules"
+harness = false

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <title>Chess Education Engine</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true">♞</div>
+        <div>
+          <p class="eyebrow">Chess Education Engine</p>
+          <h1 id="page-title">Treino interativo</h1>
+        </div>
+        <span id="connection" class="connection">conectando</span>
+      </header>
+
+      <section id="launcher" class="launcher" hidden>
+        <div>
+          <p class="eyebrow">Laboratório</p>
+          <h2>Escolha uma atividade</h2>
+          <p>As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.</p>
+        </div>
+        <div class="activity-grid">
+          <button data-create="mate">Mate em 1 <small>Encontre o lance decisivo</small></button>
+          <button data-create="knight">Treino de cavalo <small>Alcance a casa indicada</small></button>
+          <button data-create="escape">Escape do xeque <small>Proteja o rei</small></button>
+          <button data-create="game">Partida contra engine <small>Nível educacional</small></button>
+        </div>
+      </section>
+
+      <section id="workspace" class="workspace" hidden>
+        <aside class="lesson-panel">
+          <p class="eyebrow">Objetivo da atividade</p>
+          <h2 id="objective-title">Carregando…</h2>
+          <p id="objective-copy" class="objective-copy"></p>
+          <div class="progress-track" aria-label="Progresso do objetivo">
+            <span id="progress-bar"></span>
+          </div>
+          <div id="feedback" class="feedback" role="status" aria-live="polite">
+            Selecione uma peça para começar.
+          </div>
+          <div id="captured" class="captured" aria-label="Peças capturadas"></div>
+          <dl class="metrics">
+            <div><dt>Movimentos</dt><dd id="metric-moves">0</dd></div>
+            <div><dt>Acertos</dt><dd id="metric-correct">0</dd></div>
+            <div><dt>Dicas</dt><dd id="metric-hints">0</dd></div>
+          </dl>
+        </aside>
+
+        <section class="board-panel">
+          <div id="board" class="board" role="grid" aria-label="Tabuleiro de xadrez"></div>
+          <div class="controls">
+            <button id="hint-button" class="primary">Dica</button>
+            <button id="reset-button">Reiniciar</button>
+            <a href="/">Outras atividades</a>
+          </div>
+        </section>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="alert" hidden></div>
+  </body>
+</html>
