@@ -4,6 +4,9 @@ Microsserviço leve e determinístico para criar atividades educacionais de xadr
 
 O objetivo não é competir com o Stockfish. A prioridade é correção, simplicidade, extensibilidade e uma experiência adequada a estudantes.
 
+<img width="1259" height="905" alt="image" src="https://github.com/user-attachments/assets/ef168884-1ccc-4413-90b2-55468633cf04" />
+
+
 ## Estado do MVP
 
 - Regras oficiais encapsuladas por uma interface própria, usando `shakmaty`.
