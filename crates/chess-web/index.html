@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#111827" />
     <title>Chess Education Engine</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/assets/styles.css" />
     <script src="/assets/app.js" defer></script>
   </head>
@@ -19,11 +20,11 @@
         <span id="connection" class="connection">conectando</span>
       </header>
 
-      <section id="launcher" class="launcher" hidden>
+      <section id="launcher" class="launcher">
         <div>
           <p class="eyebrow">Laboratório</p>
-          <h2>Escolha uma atividade</h2>
-          <p>As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.</p>
+          <h2 id="launcher-title">Escolha uma atividade</h2>
+          <p id="launcher-copy">As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.</p>
         </div>
         <div class="activity-grid">
           <button data-create="mate">Mate em 1 <small>Encontre o lance decisivo</small></button>

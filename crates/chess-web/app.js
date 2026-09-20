@@ -35,15 +35,45 @@
       $("#connection").textContent = "online";
       $("#connection").classList.add("online");
       if (sessionId) {
+        $("#launcher").hidden = true;
         $("#workspace").hidden = false;
-        await loadSession();
+        try {
+          await loadSession();
+        } catch (error) {
+          if (error.status === 404) {
+            showLauncher(
+              "Sessão expirada",
+              "Esta sessão não existe mais, possivelmente porque o serviço foi reiniciado. Escolha uma nova atividade para continuar.",
+            );
+            history.replaceState(null, "", "/");
+            return;
+          }
+          throw error;
+        }
       } else {
-        $("#launcher").hidden = false;
-        $("#page-title").textContent = "Laboratório de xadrez";
+        showLauncher();
       }
     } catch (error) {
+      $("#connection").textContent = "offline";
+      showLauncher(
+        "Atividades temporariamente indisponíveis",
+        "Não foi possível conectar à engine. Tente novamente em alguns instantes.",
+      );
       showError(error);
     }
+  }
+
+  function showLauncher(
+    title = "Escolha uma atividade",
+    copy = "As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.",
+  ) {
+    state.session = null;
+    state.selected = null;
+    $("#workspace").hidden = true;
+    $("#launcher").hidden = false;
+    $("#page-title").textContent = "Laboratório de xadrez";
+    $("#launcher-title").textContent = title;
+    $("#launcher-copy").textContent = copy;
   }
 
   function bindControls() {
@@ -219,7 +249,12 @@
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
     const data = response.status === 204 ? null : await response.json();
-    if (!response.ok) throw new Error(data?.error?.message || `Erro HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(data?.error?.message || `Erro HTTP ${response.status}`);
+      error.status = response.status;
+      error.code = data?.error?.code;
+      throw error;
+    }
     return data;
   }
 

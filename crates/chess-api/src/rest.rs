@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::{
     error::ApiError,
-    static_assets::{APP_JS, INDEX_HTML, STYLES_CSS},
+    static_assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLES_CSS},
 };
 
 #[derive(Clone)]
@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/play/{session_id}", get(index))
+        .route("/favicon.svg", get(favicon))
         .route("/assets/app.js", get(app_js))
         .route("/assets/styles.css", get(styles_css))
         .route("/health", get(health))
@@ -141,15 +142,31 @@ async fn index() -> Html<&'static str> {
 
 async fn app_js() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
         APP_JS,
     )
 }
 
 async fn styles_css() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
         STYLES_CSS,
+    )
+}
+
+async fn favicon() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        FAVICON_SVG,
     )
 }
 
@@ -174,6 +191,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn serves_launcher_and_favicon() {
+        let app = app();
+        let response = app
+            .clone()
+            .oneshot(Request::get("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("Escolha uma atividade"));
+
+        let response = app
+            .oneshot(Request::get("/favicon.svg").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/svg+xml"
+        );
     }
 
     #[tokio::test]
