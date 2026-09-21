@@ -1,129 +1,214 @@
 # Chess Education Engine
 
-Microsserviço leve e determinístico para criar atividades educacionais de xadrez. O projeto valida regras, controla sessões e objetivos no backend; a interface apenas apresenta o estado recebido da API.
+Motor educacional de xadrez, determinístico e orientado a domínio, para criar desafios, validar lances, acompanhar objetivos pedagógicos e executar partidas contra uma engine de dificuldade controlada.
 
-O frontend estático sobe na Vercel e só escolhe a atividade. O tabuleiro vive no microsserviço da Railway: ele fica parado até receber os parâmetros da sessão e então serve `/play/{id}`.
+O backend é a autoridade sobre regras, estado da sessão, progresso e resposta da engine. As interfaces web apenas apresentam o estado recebido e enviam as ações do estudante.
 
-O objetivo não é competir com o Stockfish. A prioridade é correção, simplicidade, extensibilidade e uma experiência adequada a estudantes.
+![Partida completa no Chess Education Engine](docs/images/chess-education-engine.png)
 
-## Estado do MVP
+## Visão geral
 
-- Regras oficiais encapsuladas por uma interface própria, usando `shakmaty`.
-- FEN, movimentos legais, captura, xeque, mate, afogamento, roque, promoção e en passant.
-- Dados para repetição de posição e regra dos cinquenta movimentos.
-- Exercícios dirigidos por JSON e objetivos compostáveis por contrato.
-- Mate em um, escape do xeque, captura, movimento de peça, promoção, abertura, jogo livre e partida contra engine.
-- Engine educacional simples com material, alpha-beta/negamax, profundidade e tempo limitados.
-- Sessões isoladas por UUID, métricas e repositório em memória atrás de uma trait.
-- API REST e gRPC compartilhando o mesmo `SessionService`.
-- Interface web estática, com tabuleiro por clique e drag and drop, desafios e partida contra bot.
-- Docker multi-stage, usuário sem privilégios, filesystem somente leitura e healthcheck.
-- Testes unitários, de propriedade, PERFT, sessão e API.
+O projeto foi construído para ensino e prática deliberada, não para competir com engines profissionais. A prioridade é oferecer regras corretas, feedback previsível, atividades extensíveis e uma API que possa ser consumida por diferentes plataformas de aprendizagem.
 
-O adaptador Redis está deliberadamente fora do MVP. `SessionRepository` é o ponto de extensão para adicioná-lo sem alterar domínio, REST, gRPC ou interface. Com o repositório em memória, sessões não sobrevivem a reinícios e cada réplica tem seu próprio estado. Na Railway, use uma instância.
+Principais recursos:
+
+- regras oficiais encapsuladas por `ChessRulesEngine`, com implementação baseada em `shakmaty`;
+- validação de FEN, movimentos legais, capturas, xeque, mate, afogamento, roque, promoção e *en passant*;
+- suporte aos dados necessários para repetição de posição e regra dos cinquenta movimentos;
+- desafios configuráveis por JSON, sem criar uma rota ou tela para cada exercício;
+- objetivos pedagógicos compostáveis, dicas progressivas e feedback estruturado;
+- treino de peças, táticas, sequências, promoção, jogo livre e partida contra bot;
+- engine educacional com negamax, poda alpha-beta e limites de profundidade e tempo;
+- sessões isoladas por UUID, histórico de lances, métricas e progresso;
+- REST e gRPC sobre o mesmo serviço de aplicação;
+- catálogo web separado e tabuleiro servido pelo próprio microsserviço;
+- imagem Docker multi-stage, usuário sem privilégios, filesystem somente leitura e healthcheck;
+- testes unitários, de propriedade, integração HTTP, PERFT e benchmarks.
 
 ## Arquitetura
 
-```text
-Vercel (web/)                 Railway (chess-api)
-catálogo ──POST parâmetros──► REST :$PORT
-          ◄── ui_url /play/id ──┘
-navegador ──────────────────► GET /play/{id}  (tabuleiro)
-                              gRPC :50051 (opcional)
-```
+### Contexto do sistema
 
 ```text
-crates/
-├── chess-core/       Tipos de domínio e regras; não conhece HTTP
-├── chess-engine/     Busca leve, limitada por tempo
-├── chess-education/  Exercícios, objetivos e geradores data-driven
-├── chess-session/    Estado, métricas, repositório e aplicação
-└── chess-api/        Adaptadores REST/gRPC, tabuleiro em /play/{id} e binário
-web/                  Catálogo estático para a Vercel
-crates/chess-web/     HTML/CSS/JS do tabuleiro embutidos no microsserviço
-proto/
-└── chess.proto
+┌──────────────────────────┐
+│ Catálogo web estático    │
+│ atividades e modalidades │
+└────────────┬─────────────┘
+             │ POST /api/v1/sessions
+             ▼
+┌──────────────────────────────────────────────────────┐
+│ Chess Education Engine                               │
+│                                                      │
+│  REST :8080 ─┐                                       │
+│              ├──► SessionService ──► domínio         │
+│  gRPC :50051 ┘            │                          │
+│                           └──► SessionRepository      │
+│                                                      │
+│  GET /play/{id} ──► tabuleiro web da sessão          │
+└──────────────────────────────────────────────────────┘
 ```
 
-Dependências apontam para dentro: transporte depende da aplicação, que depende do domínio. O domínio nunca depende de Axum, Tonic ou do frontend.
+O catálogo cria uma sessão e recebe um `ui_url`. Ao abrir essa URL, o navegador carrega o tabuleiro correspondente e passa a interagir diretamente com o contrato REST. Outros consumidores podem usar REST ou gRPC sem depender da interface web.
 
-## Deploy
+### Camadas internas
 
-### Railway (API)
+```text
+                         ┌─────────────────────────────┐
+                         │ chess-api                   │
+                         │ Axum · Tonic · assets web   │
+                         └──────────────┬──────────────┘
+                                        │
+                         ┌──────────────▼──────────────┐
+                         │ chess-session               │
+                         │ casos de uso e persistência │
+                         └───────┬───────────┬─────────┘
+                                 │           │
+                 ┌───────────────▼───┐   ┌───▼──────────────┐
+                 │ chess-education   │   │ chess-engine     │
+                 │ exercícios,      │   │ busca limitada e │
+                 │ objetivos e dicas│   │ avaliação        │
+                 └───────────────┬───┘   └───┬──────────────┘
+                                 │           │
+                                 └─────┬─────┘
+                                       ▼
+                         ┌─────────────────────────────┐
+                         │ chess-core                  │
+                         │ tipos, regras e Shakmaty    │
+                         └─────────────────────────────┘
+```
 
-1. Crie um serviço a partir deste repositório. O `Dockerfile` e o `railway.toml` já estão na raiz.
-2. Railway injeta `PORT`; o binário escuta em `0.0.0.0:$PORT`.
-3. Variáveis:
+As dependências apontam para o domínio. `chess-core` não conhece HTTP, gRPC, HTML ou repositórios; `chess-api` é a camada externa que compõe os adaptadores concretos.
 
-| Variável | Uso |
+| Componente | Responsabilidade |
 |---|---|
-| `FRONTEND_ORIGIN` | Origem da Vercel, por exemplo `https://seu-app.vercel.app`. Várias origens: lista separada por vírgula. Não use `*`. |
-| `PUBLIC_API_URL` | URL pública deste microsserviço, usada em `ui_url`. Ex.: `https://chess-api.up.railway.app`. |
-| `CORS_ORIGIN` | Alias de `FRONTEND_ORIGIN` se esta não existir. |
-| `RUST_LOG` | Opcional. Padrão `info`. |
-| `GRPC_ADDR` | Opcional. Padrão `0.0.0.0:50051`. |
+| `chess-core` | Tipos de domínio, representação da posição e contrato `ChessRulesEngine`. |
+| `chess-education` | Fábrica de exercícios, geradores de posição, objetivos, avaliação e dicas. |
+| `chess-engine` | Escolha de lances da engine educacional sob limites rígidos. |
+| `chess-session` | Casos de uso, estado, métricas e contrato `SessionRepository`. |
+| `chess-api` | Adaptadores REST/gRPC, composição da aplicação e assets do tabuleiro. |
+| `web` | Catálogo estático que seleciona atividades e cria sessões. |
+| `proto` | Contrato público do serviço gRPC. |
 
-4. Healthcheck: `GET /health`.
-5. Copie a URL pública, por exemplo `https://chess-api.up.railway.app`.
+### Fluxo de uma jogada
 
-### Vercel (frontend)
+```text
+Navegador
+   │  POST /sessions/{id}/moves
+   ▼
+REST adapter
+   │
+   ▼
+SessionService
+   ├── carrega a sessão pelo SessionRepository
+   ├── consulta o estado em ChessRulesEngine
+   ├── valida e aplica o movimento
+   ├── avalia o objetivo em ExerciseValidator
+   ├── solicita a resposta de ChessAi, quando configurada
+   ├── atualiza histórico, métricas e duração
+   └── persiste o novo estado
+   │
+   ▼
+Resposta estruturada: posição, feedback, objetivo e movimentos legais
+```
 
-1. Root Directory: `web`.
-2. Variável de ambiente de **build**: `CHESS_API_URL=https://sua-api.up.railway.app` (sem barra no final).
-3. Depois do primeiro deploy, volte na Railway e confirme `FRONTEND_ORIGIN` com a URL final da Vercel, incluindo `https://`. O catálogo redireciona para `{CHESS_API_URL}/play/{id}`.
+Uma instância de `SessionService` é compartilhada pelos adaptadores REST e gRPC. Isso evita regras duplicadas nas camadas de transporte e mantém o comportamento consistente entre protocolos.
 
-## Executar localmente
+## Estrutura do repositório
 
-### Docker
+```text
+chess-education-engine/
+├── crates/
+│   ├── chess-core/
+│   ├── chess-education/
+│   ├── chess-engine/
+│   ├── chess-session/
+│   ├── chess-api/
+│   └── chess-web/          # HTML, CSS e JavaScript embutidos na API
+├── docs/images/            # imagens usadas na documentação
+├── examples/               # atividades declarativas de exemplo
+├── proto/chess.proto       # contrato gRPC
+├── web/                    # catálogo estático de atividades
+├── Dockerfile
+└── docker-compose.yml
+```
+
+## Tecnologias
+
+- Rust 2024 e Tokio;
+- Axum para HTTP/REST;
+- Tonic e Protocol Buffers para gRPC;
+- `shakmaty` para regras de xadrez;
+- Serde para contratos JSON;
+- `tracing` e `tracing-subscriber` para logs estruturados;
+- HTML, CSS e JavaScript sem framework no cliente;
+- Docker e Nginx para execução local do catálogo.
+
+## Início rápido com Docker
+
+Requisito: Docker com Compose.
 
 ```bash
 docker compose up --build
 ```
 
-Depois:
+Serviços disponíveis:
 
-- Interface (catálogo): `http://localhost:4173`
-- REST e tabuleiro: `http://localhost:8080`
-- gRPC: `localhost:50051`
-- Healthcheck: `http://localhost:8080/health`
+| Serviço | Endereço |
+|---|---|
+| Catálogo de atividades | `http://localhost:4173` |
+| API REST e tabuleiro | `http://localhost:8080` |
+| Healthcheck | `http://localhost:8080/health` |
+| Readiness | `http://localhost:8080/ready` |
+| gRPC | `localhost:50051` |
 
-Parar:
+Para encerrar:
 
 ```bash
 docker compose down
 ```
 
-### Rust + frontend estático
+O Compose executa a API com filesystem somente leitura e `no-new-privileges`. O catálogo é servido por Nginx com o diretório web montado como somente leitura.
 
-Requisitos: Rust 1.95 ou superior e Node.js para o servidor estático. Em Windows com toolchain MSVC, instale também o Visual C++ Build Tools.
+## Desenvolvimento local
 
-Terminal 1:
+Requisitos:
+
+- Rust 1.95 ou superior;
+- Node.js para servir o catálogo estático;
+- no Windows com toolchain MSVC, Visual C++ Build Tools.
+
+API e tabuleiro:
 
 ```bash
 cargo run --release -p chess-api
 ```
 
-Terminal 2:
+Em outro terminal, catálogo de atividades:
 
 ```bash
 cd web
 npm run dev
 ```
 
-A interface fica em `http://localhost:4173` e chama `http://localhost:8080`.
+O catálogo usa `CHESS_API_URL=http://localhost:8080` como padrão.
 
-Variáveis da API:
+## Configuração
 
-| Variável | Padrão | Uso |
+As variáveis estão documentadas em `.env.example`.
+
+| Variável | Padrão | Responsabilidade |
 |---|---:|---|
-| `PORT` | `8080` | Porta REST quando `HTTP_ADDR` não existe |
-| `HTTP_ADDR` | — | Endereço REST completo; tem prioridade sobre `PORT` |
-| `GRPC_ADDR` | `0.0.0.0:50051` | Endereço gRPC |
-| `RUST_LOG` | `info` | Filtro de logs estruturados |
-| `FRONTEND_ORIGIN` | origens localhost | Origem permitida no CORS; obrigatória em produção |
-| `PUBLIC_API_URL` | — | URL pública do microsserviço para `ui_url` |
+| `PORT` | `8080` | Porta HTTP quando `HTTP_ADDR` não está definido. |
+| `HTTP_ADDR` | — | Endereço HTTP completo; tem prioridade sobre `PORT`. |
+| `GRPC_ADDR` | `0.0.0.0:50051` | Endereço do servidor gRPC. |
+| `RUST_LOG` | `chess_api=info,tower_http=info` | Filtro dos logs estruturados. |
+| `FRONTEND_ORIGIN` | origens locais | Lista de origens permitidas no CORS, separadas por vírgula. |
+| `PUBLIC_API_URL` | — | Base pública usada para construir `ui_url`. |
+| `CHESS_API_URL` | `http://localhost:8080` | Base da API gravada na configuração do catálogo. |
 
-## REST API
+Em um ambiente publicado, configure explicitamente `FRONTEND_ORIGIN` e `PUBLIC_API_URL`, encerre TLS no gateway ou proxy reverso e exponha somente as portas necessárias.
+
+## API REST
 
 ### Criar uma sessão
 
@@ -140,9 +225,9 @@ curl -X POST http://localhost:8080/api/v1/sessions \
   }'
 ```
 
-A resposta inclui `session_id`, FEN, objetivo, movimentos legais, configuração de UI e `ui_url`. Abra `{PUBLIC_API_URL}/play/{session_id}` — o tabuleiro é servido pelo microsserviço.
+A resposta contém `session_id`, posição FEN, objetivo, movimentos legais, configuração da interface e `ui_url`.
 
-### Jogar
+### Executar um movimento
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/sessions/SEU_UUID/moves \
@@ -150,27 +235,28 @@ curl -X POST http://localhost:8080/api/v1/sessions/SEU_UUID/moves \
   -d '{"from":"g6","to":"g7","promotion":null}'
 ```
 
-O feedback usa `message_key` e variáveis estruturadas. Tradução e textos longos permanecem fora da engine.
+O resultado informa se o lance é válido, a nova posição, o estado do objetivo, as métricas, o feedback e, quando aplicável, o lance da engine.
 
-### Demais rotas
+### Rotas
 
-| Método | Rota | Função |
+| Método | Rota | Finalidade |
 |---|---|---|
-| `GET` | `/` | Descrição mínima da API |
-| `GET` | `/health` | Processo ativo |
-| `GET` | `/ready` | Serviço pronto |
-| `POST` | `/api/v1/sessions` | Cria sessão |
-| `GET` | `/api/v1/sessions/{id}` | Consulta sessão |
-| `POST` | `/api/v1/sessions/{id}/moves` | Valida e aplica lance |
-| `POST` | `/api/v1/sessions/{id}/hint` | Dica progressiva estruturada |
-| `POST` | `/api/v1/sessions/{id}/reset` | Reinicia sessão |
-| `DELETE` | `/api/v1/sessions/{id}` | Remove sessão |
+| `GET` | `/` | Informações básicas do serviço. |
+| `GET` | `/health` | Confirma que o processo está ativo. |
+| `GET` | `/ready` | Confirma que o serviço está pronto. |
+| `GET` | `/play/{id}` | Carrega o tabuleiro de uma sessão. |
+| `POST` | `/api/v1/sessions` | Cria uma sessão. |
+| `GET` | `/api/v1/sessions/{id}` | Consulta o estado atual. |
+| `POST` | `/api/v1/sessions/{id}/moves` | Valida e aplica um lance. |
+| `POST` | `/api/v1/sessions/{id}/hint` | Retorna uma dica progressiva. |
+| `POST` | `/api/v1/sessions/{id}/reset` | Reinicia a atividade. |
+| `DELETE` | `/api/v1/sessions/{id}` | Remove a sessão. |
+
+Os erros públicos são estruturados e não expõem detalhes internos. Textos de feedback usam `message_key` e variáveis, permitindo que tradução e conteúdo editorial permaneçam fora do domínio.
 
 ## gRPC
 
-O contrato está em `proto/chess.proto`. REST e gRPC chamam a mesma instância de `SessionService`.
-
-Exemplo com `grpcurl`:
+O contrato está em `proto/chess.proto` e oferece criação, consulta, movimento, dica, reinício e remoção de sessões.
 
 ```bash
 grpcurl -plaintext \
@@ -181,11 +267,11 @@ grpcurl -plaintext \
   chess.education.v1.ChessEducation/CreateSession
 ```
 
-Para configurações completas, envie o mesmo JSON da API REST em `request_json`.
+Configurações completas podem ser enviadas em `request_json` usando o mesmo documento aceito pela API REST.
 
 ## Exercícios dirigidos por dados
 
-Um exercício customizado não requer nova rota ou tela:
+Uma nova atividade pode combinar posição, objetivo, dificuldade e regras sem introduzir endpoints específicos:
 
 ```json
 {
@@ -202,73 +288,82 @@ Um exercício customizado não requer nova rota ou tela:
 }
 ```
 
-Há exemplos prontos em `examples/`.
+Arquivos completos estão disponíveis em `examples/`.
 
 Objetivos suportados pelo contrato:
 
-- `checkmate`
-- `check`
-- `capture`
-- `move_piece`
-- `reach_square`
-- `promote`
-- `escape_check`
-- `win_material`
-- `survive`
-- `best_move`
-- `complete_sequence`
-- `play_full_game`
-
-## Como estender
-
-### Novo Objective
-
-1. Adicione a variante a `ObjectiveSpec` em `chess-education/src/model.rs`.
-2. Implemente sua avaliação em `DefaultObjectiveEvaluator` ou crie outro `ExerciseValidator`.
-3. Adicione testes com posição inicial, progresso, sucesso e falha.
-4. Aponte um JSON para o novo `type`; nenhuma rota nova é necessária.
-
-### Novo PositionGenerator
-
-1. Implemente `PositionGenerator`.
-2. Gere ou transforme templates com rotação, espelhamento ou troca de cores.
-3. Valide toda posição com `ChessRulesEngine::validate_position`.
-4. Injete o gerador na fábrica de exercícios.
-
-### Nova modalidade
-
-Modele-a como composição de posição, objetivo, regras e oponente. Só crie um novo `ExerciseType` quando a modalidade tiver semântica de domínio própria; não crie handlers HTTP específicos.
-
-### Redis
-
-Implemente `SessionRepository` em `chess-session`. Use serialização de `ChessSession`, TTL e compare-and-swap/lock por sessão para evitar perda de atualização. Depois troque somente a composição em `application_service()`.
+- `checkmate`;
+- `check`;
+- `capture`;
+- `move_piece`;
+- `reach_square`;
+- `promote`;
+- `escape_check`;
+- `win_material`;
+- `survive`;
+- `best_move`;
+- `complete_sequence`;
+- `play_full_game`.
 
 ## Engine educacional
 
-`SimpleEngine` usa busca negamax com poda alpha-beta, avaliação material e limites rígidos. A dificuldade combina:
+`SimpleEngine` implementa busca negamax com poda alpha-beta e avaliação material. A dificuldade controla profundidade, tempo máximo e alternativas aceitáveis.
 
-- profundidade;
-- limite de tempo;
-- quantidade de alternativas aceitáveis;
-- ruído de avaliação preparado no contrato.
+A busca é executada fora do executor assíncrono principal por meio de `spawn_blocking` e possui timeout externo. Isso impede que uma análise mais longa bloqueie o servidor HTTP.
 
-A busca roda em `spawn_blocking`, não no executor assíncrono do Tokio, e tem timeout externo. Próximas evoluções naturais são tabelas peça-casa, quiescence, ordenação de movimentos, transposition table e Zobrist hashing — medidas por benchmark, não adicionadas prematuramente.
+O objetivo dessa engine é produzir oposição adequada ao nível do estudante. Evoluções como tabelas peça-casa, quiescence, ordenação de movimentos, *transposition table* e Zobrist hashing devem ser orientadas por benchmark.
+
+## Extensibilidade
+
+### Adicionar um objetivo
+
+1. Adicione a variante a `ObjectiveSpec` em `chess-education/src/model.rs`.
+2. Implemente a avaliação em `DefaultObjectiveEvaluator` ou em outro `ExerciseValidator`.
+3. Cubra progresso, conclusão e falha com testes.
+4. Passe o novo `type` na definição JSON; o transporte não precisa mudar.
+
+### Adicionar um gerador de posição
+
+1. Implemente `PositionGenerator`.
+2. Gere ou transforme templates por rotação, espelhamento ou troca de cores.
+3. Valide o resultado com `ChessRulesEngine::validate_position`.
+4. Registre o gerador na fábrica de exercícios.
+
+### Adicionar persistência
+
+Implemente `SessionRepository` em `chess-session` e substitua somente o adaptador na função `application_service()`. Um adaptador distribuído deve incluir TTL e controle de concorrência por sessão para evitar perda de atualização.
+
+### Adicionar uma modalidade
+
+Modele a modalidade como composição de posição, objetivo, regras e oponente. Um novo `ExerciseType` só é necessário quando existe uma semântica de domínio própria; handlers HTTP específicos devem ser evitados.
 
 ## Segurança e operação
 
-- Payload REST limitado a 32 KiB.
-- FEN e casas validados no domínio.
-- UUID v4 para sessões.
-- Limite de movimentos por exercício.
-- Busca limitada por profundidade, tempo e timeout.
-- CORS restrito a `FRONTEND_ORIGIN` em produção; sem `*`.
-- Erros públicos não expõem stack trace.
-- Container sem privilégios e filesystem read-only no Compose.
-- `x-request-id` criado ou propagado pela camada HTTP.
-- Logs JSON via `tracing`/`tracing-subscriber`.
-- A URL da API no frontend (`CHESS_API_URL`) não é um segredo; a chave de nenhum provedor de modelo entra no browser.
+- payload REST limitado a 32 KiB;
+- FEN, casas e movimentos validados no domínio;
+- UUID v4 para identificação das sessões;
+- limite de movimentos por exercício;
+- busca limitada por profundidade, duração e timeout;
+- CORS por lista explícita de origens;
+- erros públicos sem stack trace;
+- imagem de runtime sem toolchain de compilação;
+- usuário sem privilégios no container;
+- filesystem somente leitura no Compose;
+- `x-request-id` criado ou propagado na camada HTTP;
+- logs JSON por `tracing`;
+- nenhuma credencial ou chave de modelo é enviada ao navegador.
 
-Rate limiting deve ser aplicado no gateway/reverse proxy ou como uma nova camada Tower, conforme a política da plataforma. A engine não armazena dados pessoais.
+Rate limiting deve ser aplicado no gateway, proxy reverso ou em uma camada Tower dedicada, conforme os requisitos do ambiente. A engine não armazena dados pessoais.
+
+## Estado e escalabilidade
+
+O adaptador atual é `InMemorySessionRepository`. Consequências:
+
+- sessões não sobrevivem ao reinício do processo;
+- cada réplica possui seu próprio conjunto de sessões;
+- o modo padrão é indicado para desenvolvimento, demonstração e execução com uma única instância.
+
+Para múltiplas réplicas ou sessões duráveis, implemente um repositório compartilhado pelo contrato existente. REST, gRPC, domínio e frontend permanecem inalterados.
 
 ## Testes e qualidade
 
@@ -279,24 +374,22 @@ cargo test --workspace
 cargo build --release --locked
 ```
 
-Sem toolchain nativa completa, use o mesmo ambiente Linux do build:
+Também é possível executar os testes no mesmo ambiente Linux usado no build:
 
 ```bash
 docker run --rm -v "$PWD:/app" -w /app rust:1.97-bookworm cargo test --workspace
 ```
 
-Os testes cobrem, entre outros:
+A suíte cobre:
 
 - posição inicial e movimentos legais;
-- movimento ilegal;
-- roque, en passant e promoção;
+- movimentos ilegais;
+- roque, *en passant* e promoção;
 - xeque-mate e afogamento;
 - PERFT da posição inicial até profundidade 3 (`20`, `400`, `8902`);
 - propriedade de que todo movimento legal aplicado produz outra posição válida;
-- objetivo de mate em um;
-- dicas estruturadas;
-- isolamento de sessões;
-- fluxo completo pela API REST.
+- objetivos, dicas e isolamento de sessões;
+- fluxo completo da API REST.
 
 ## Benchmarks
 
@@ -304,13 +397,15 @@ Os testes cobrem, entre outros:
 cargo bench -p chess-core
 ```
 
-O benchmark Criterion mede parsing FEN, geração de movimentos legais e aplicação/validação de movimento. Novas otimizações devem começar com uma medição reproduzível aqui.
+O benchmark Criterion mede parsing FEN, geração de movimentos legais e aplicação de movimentos. Otimizações devem começar por uma medição reproduzível.
 
-## Decisões importantes
+## Decisões de projeto
 
-- `shakmaty` fica atrás de `ChessRulesEngine`; trocar a biblioteca não altera os consumidores.
-- Bitboards nunca aparecem no contrato público.
-- O LLM futuro poderá selecionar, explicar e personalizar atividades, mas não validar movimentos nem decidir mate.
-- O frontend não conhece regras: recebe FEN, movimentos legais, objetivo e configuração da API.
-- Frontend e API são artefactos de deploy separados.
-- Não há Kafka, Kubernetes, CQRS, banco obrigatório ou múltiplos serviços no MVP.
+- `shakmaty` permanece atrás de `ChessRulesEngine`;
+- estruturas internas como bitboards não aparecem nos contratos públicos;
+- o frontend não replica regras de xadrez;
+- REST e gRPC compartilham casos de uso e estado;
+- atividades são preferencialmente descritas por dados;
+- uma integração futura com LLM pode selecionar ou explicar atividades, mas não validar lances nem decidir mate;
+- o MVP evita infraestrutura que não seja necessária ao problema, como Kafka, Kubernetes, CQRS ou banco obrigatório.
+
