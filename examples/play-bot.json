@@ -1,0 +1,8 @@
+{
+  "mode": "full_game",
+  "difficulty": "beginner",
+  "opponent": {
+    "type": "engine",
+    "difficulty": 2
+  }
+}

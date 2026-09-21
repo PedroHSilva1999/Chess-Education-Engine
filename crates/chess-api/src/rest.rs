@@ -12,7 +12,7 @@ use chess_education::ExerciseRequest;
 use chess_session::{HintResult, PlayMoveResult, SessionService, SessionSnapshot};
 use serde::{Deserialize, Serialize};
 use tower_http::{
-    cors::{Any, CorsLayer},
+    cors::{AllowOrigin, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::{
     error::ApiError,
-    static_assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLES_CSS},
+    static_assets::{FAVICON_SVG, PLAY_CSS, PLAY_HTML, PLAY_JS},
 };
 
 #[derive(Clone)]
@@ -31,6 +31,14 @@ pub struct AppState {
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct ServiceInfo {
+    service: &'static str,
+    health: &'static str,
+    ready: &'static str,
+    api: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,11 +52,12 @@ pub struct MoveRequest {
 pub fn router(state: AppState) -> Router {
     let request_id_header = HeaderName::from_static("x-request-id");
     Router::new()
-        .route("/", get(index))
-        .route("/play/{session_id}", get(index))
+        .route("/", get(service_info))
+        .route("/play/{session_id}", get(play_page))
         .route("/favicon.svg", get(favicon))
-        .route("/assets/app.js", get(app_js))
-        .route("/assets/styles.css", get(styles_css))
+        .route("/assets/play.js", get(play_js))
+        .route("/assets/play.css", get(play_css))
+        .route("/assets/play-config.js", get(play_config))
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/api/v1/sessions", post(create_session))
@@ -68,18 +77,73 @@ pub fn router(state: AppState) -> Router {
 }
 
 fn cors_layer() -> CorsLayer {
-    let methods = [Method::GET, Method::POST, Method::DELETE];
-    match std::env::var("CORS_ORIGIN") {
-        Ok(origin) if origin != "*" => origin
-            .parse::<HeaderValue>()
-            .map(|origin| {
-                CorsLayer::new()
-                    .allow_origin(origin)
-                    .allow_methods(methods.clone())
-            })
-            .unwrap_or_else(|_| CorsLayer::new().allow_origin(Any).allow_methods(methods)),
-        _ => CorsLayer::new().allow_origin(Any).allow_methods(methods),
+    let methods = [Method::GET, Method::POST, Method::DELETE, Method::OPTIONS];
+    let headers = [
+        header::ACCEPT,
+        header::CONTENT_TYPE,
+        HeaderName::from_static("x-request-id"),
+    ];
+    CorsLayer::new()
+        .allow_origin(allow_origin())
+        .allow_methods(methods)
+        .allow_headers(headers)
+}
+
+fn allow_origin() -> AllowOrigin {
+    let configured = configured_origins();
+    if !configured.is_empty() {
+        return AllowOrigin::list(configured);
     }
+    if is_hosted() {
+        return AllowOrigin::list(
+            ["https://invalid.invalid"]
+                .into_iter()
+                .filter_map(|origin| origin.parse().ok())
+                .collect::<Vec<_>>(),
+        );
+    }
+    AllowOrigin::list(local_dev_origins())
+}
+
+fn is_hosted() -> bool {
+    std::env::var("RAILWAY_ENVIRONMENT").is_ok()
+        || std::env::var("RUST_ENV").ok().as_deref() == Some("production")
+}
+
+fn configured_origins() -> Vec<HeaderValue> {
+    let raw = std::env::var("FRONTEND_ORIGIN")
+        .or_else(|_| std::env::var("CORS_ORIGIN"))
+        .unwrap_or_default();
+    raw.split(',')
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty() && *origin != "*")
+        .filter_map(|origin| origin.parse().ok())
+        .collect()
+}
+
+fn local_dev_origins() -> Vec<HeaderValue> {
+    [
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+    .into_iter()
+    .filter_map(|origin| origin.parse().ok())
+    .collect()
+}
+
+async fn service_info() -> Json<ServiceInfo> {
+    Json(ServiceInfo {
+        service: "chess-education-engine",
+        health: "/health",
+        ready: "/ready",
+        api: "/api/v1/sessions",
+    })
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -94,7 +158,7 @@ async fn create_session(
     State(state): State<AppState>,
     Json(request): Json<ExerciseRequest>,
 ) -> Result<(StatusCode, Json<SessionSnapshot>), ApiError> {
-    let session = state.service.create(&request).await?;
+    let session = with_play_url(state.service.create(&request).await?);
     Ok((StatusCode::CREATED, Json(session)))
 }
 
@@ -102,7 +166,7 @@ async fn get_session(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SessionSnapshot>, ApiError> {
-    Ok(Json(state.service.get(id).await?))
+    Ok(Json(with_play_url(state.service.get(id).await?)))
 }
 
 async fn play_move(
@@ -125,7 +189,7 @@ async fn reset(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SessionSnapshot>, ApiError> {
-    Ok(Json(state.service.reset(id).await?))
+    Ok(Json(with_play_url(state.service.reset(id).await?)))
 }
 
 async fn delete_session(
@@ -136,27 +200,84 @@ async fn delete_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+pub(crate) fn with_play_url(mut session: SessionSnapshot) -> SessionSnapshot {
+    session.ui_url = play_url(session.session_id);
+    session
 }
 
-async fn app_js() -> impl IntoResponse {
+pub(crate) fn play_url(id: Uuid) -> String {
+    match public_api_base() {
+        Some(base) => format!("{base}/play/{id}"),
+        None => format!("/play/{id}"),
+    }
+}
+
+fn public_api_base() -> Option<String> {
+    std::env::var("PUBLIC_API_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty() && looks_like_http_url(value))
+        .or_else(|| {
+            std::env::var("RAILWAY_PUBLIC_DOMAIN")
+                .ok()
+                .map(|domain| {
+                    domain
+                        .trim()
+                        .trim_start_matches("https://")
+                        .trim_start_matches("http://")
+                        .trim_end_matches('/')
+                        .to_owned()
+                })
+                .filter(|domain| !domain.is_empty() && !domain.contains('/'))
+                .map(|domain| format!("https://{domain}"))
+        })
+}
+
+fn looks_like_http_url(value: &str) -> bool {
+    (value.starts_with("http://") || value.starts_with("https://")) && !value.contains('\n')
+}
+
+fn launcher_url() -> String {
+    configured_origins()
+        .into_iter()
+        .next()
+        .and_then(|value| value.to_str().ok().map(str::to_owned))
+        .filter(|origin| looks_like_http_url(origin))
+        .unwrap_or_default()
+}
+
+async fn play_page(Path(_session_id): Path<Uuid>) -> Html<&'static str> {
+    Html(PLAY_HTML)
+}
+
+async fn play_js() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        APP_JS,
+        PLAY_JS,
     )
 }
 
-async fn styles_css() -> impl IntoResponse {
+async fn play_css() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        STYLES_CSS,
+        PLAY_CSS,
+    )
+}
+
+async fn play_config() -> impl IntoResponse {
+    let url = serde_json::to_string(&launcher_url()).unwrap_or_else(|_| "\"\"".to_owned());
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        format!("window.CHESS_LAUNCHER_URL = {url};\n"),
     )
 }
 
@@ -194,25 +315,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serves_launcher_and_favicon() {
-        let app = app();
-        let response = app
-            .clone()
+    async fn root_describes_the_api_without_serving_the_frontend() {
+        let response = app()
             .oneshot(Request::get("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert!(String::from_utf8_lossy(&body).contains("Escolha uma atividade"));
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["service"], "chess-education-engine");
+        assert!(String::from_utf8_lossy(&body).contains("/api/v1/sessions"));
+    }
 
-        let response = app
-            .oneshot(Request::get("/favicon.svg").body(Body::empty()).unwrap())
+    #[tokio::test]
+    async fn local_origin_can_preflight_session_create() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/v1/sessions")
+                    .header("Origin", "http://localhost:4173")
+                    .header("Access-Control-Request-Method", "POST")
+                    .header("Access-Control-Request-Headers", "content-type")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
-            response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "image/svg+xml"
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "http://localhost:4173"
         );
     }
 
@@ -244,6 +380,7 @@ mod tests {
             serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
                 .unwrap();
         let id = body["session_id"].as_str().unwrap();
+        assert!(body["ui_url"].as_str().unwrap().ends_with(&format!("/play/{id}")));
 
         let response = app
             .oneshot(
@@ -259,5 +396,23 @@ mod tests {
             serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
                 .unwrap();
         assert_eq!(body["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn play_page_is_served_by_the_api() {
+        let id = Uuid::new_v4();
+        let response = app()
+            .oneshot(
+                Request::get(format!("/play/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("id=\"board\""));
+        assert!(html.contains("/assets/play.js"));
     }
 }

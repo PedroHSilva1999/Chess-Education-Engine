@@ -38,7 +38,9 @@ impl ChessEducation for GrpcChessEducation {
         request: Request<CreateSessionRequest>,
     ) -> Result<Response<SessionResponse>, Status> {
         let request = exercise_request(request.into_inner())?;
-        let session = self.service.create(&request).await.map_err(map_error)?;
+        let session = crate::rest::with_play_url(
+            self.service.create(&request).await.map_err(map_error)?,
+        );
         Ok(Response::new(session_response(&session)?))
     }
 
@@ -77,7 +79,7 @@ impl ChessEducation for GrpcChessEducation {
         request: Request<GetSessionRequest>,
     ) -> Result<Response<SessionResponse>, Status> {
         let id = parse_uuid(&request.into_inner().session_id)?;
-        let session = self.service.get(id).await.map_err(map_error)?;
+        let session = crate::rest::with_play_url(self.service.get(id).await.map_err(map_error)?);
         Ok(Response::new(session_response(&session)?))
     }
 
@@ -101,7 +103,7 @@ impl ChessEducation for GrpcChessEducation {
         request: Request<ResetSessionRequest>,
     ) -> Result<Response<SessionResponse>, Status> {
         let id = parse_uuid(&request.into_inner().session_id)?;
-        let session = self.service.reset(id).await.map_err(map_error)?;
+        let session = crate::rest::with_play_url(self.service.reset(id).await.map_err(map_error)?);
         Ok(Response::new(session_response(&session)?))
     }
 

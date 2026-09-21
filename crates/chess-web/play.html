@@ -4,34 +4,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#111827" />
-    <title>Chess Education Engine</title>
+    <title>Chess Education</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/assets/styles.css" />
-    <script src="/assets/app.js" defer></script>
+    <link rel="stylesheet" href="/assets/play.css" />
+    <script src="/assets/play-config.js"></script>
+    <script src="/assets/play.js" defer></script>
   </head>
   <body>
-    <main class="shell">
+    <a class="skip-link" href="#main">Ir para o tabuleiro</a>
+    <main id="main" class="shell">
       <header class="brand">
         <div class="brand-mark" aria-hidden="true">♞</div>
         <div>
-          <p class="eyebrow">Chess Education Engine</p>
+          <p class="eyebrow">Chess Education</p>
           <h1 id="page-title">Treino interativo</h1>
         </div>
         <span id="connection" class="connection">conectando</span>
       </header>
 
-      <section id="launcher" class="launcher">
-        <div>
-          <p class="eyebrow">Laboratório</p>
-          <h2 id="launcher-title">Escolha uma atividade</h2>
-          <p id="launcher-copy">As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.</p>
-        </div>
-        <div class="activity-grid">
-          <button data-create="mate">Mate em 1 <small>Encontre o lance decisivo</small></button>
-          <button data-create="knight">Treino de cavalo <small>Alcance a casa indicada</small></button>
-          <button data-create="escape">Escape do xeque <small>Proteja o rei</small></button>
-          <button data-create="game">Partida contra engine <small>Nível educacional</small></button>
-        </div>
+      <section id="expired" class="expired" hidden>
+        <p class="eyebrow">Sessão</p>
+        <h2>Sessão expirada</h2>
+        <p>Esta atividade não existe mais neste microsserviço, possivelmente porque o processo foi reiniciado. Volte ao laboratório e chame o serviço de novo.</p>
+        <a id="expired-home" href="/">Outras atividades</a>
       </section>
 
       <section id="workspace" class="workspace" hidden>
@@ -58,11 +53,22 @@
           <div class="controls">
             <button id="hint-button" class="primary">Dica</button>
             <button id="reset-button">Reiniciar</button>
-            <a href="/">Outras atividades</a>
+            <a id="home-link" href="/">Outras atividades</a>
           </div>
         </section>
       </section>
     </main>
+    <div id="promotion" class="promotion" hidden>
+      <div class="promotion-card" role="dialog" aria-modal="true" aria-labelledby="promotion-title">
+        <p id="promotion-title">Promover peão</p>
+        <div class="promotion-choices">
+          <button type="button" data-piece="queen">Dama</button>
+          <button type="button" data-piece="rook">Torre</button>
+          <button type="button" data-piece="bishop">Bispo</button>
+          <button type="button" data-piece="knight">Cavalo</button>
+        </div>
+      </div>
+    </div>
     <div id="toast" class="toast" role="alert" hidden></div>
   </body>
 </html>

@@ -9,7 +9,7 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
-    let http_address = address_from_env("HTTP_ADDR", "0.0.0.0:8080")?;
+    let http_address = http_address()?;
     let grpc_address = address_from_env("GRPC_ADDR", "0.0.0.0:50051")?;
     let service = application_service();
     let app = router(AppState {
@@ -35,6 +35,17 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn http_address() -> Result<SocketAddr> {
+    if let Ok(addr) = std::env::var("HTTP_ADDR") {
+        let addr = addr.trim();
+        if !addr.is_empty() {
+            return SocketAddr::from_str(addr).context("invalid HTTP_ADDR");
+        }
+    }
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_owned());
+    SocketAddr::from_str(&format!("0.0.0.0:{port}")).context("invalid PORT")
 }
 
 fn address_from_env(name: &str, fallback: &str) -> Result<SocketAddr> {

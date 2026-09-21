@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <meta name="description" content="Treine xadrez no navegador: desafios guiados e partida contra um bot educacional." />
+    <meta property="og:title" content="Chess Education" />
+    <meta property="og:description" content="Desafios, táticas e partida contra bot. O tabuleiro é servido pelo microsserviço quando a atividade é criada." />
+    <meta property="og:type" content="website" />
+    <title>Chess Education</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/config.js"></script>
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Ir para o conteúdo</a>
+    <main id="main" class="shell">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true">♞</div>
+        <div>
+          <p class="eyebrow">Chess Education</p>
+          <h1 id="page-title">Laboratório de xadrez</h1>
+        </div>
+        <span id="connection" class="connection">conectando</span>
+      </header>
+
+      <section id="launcher" class="launcher">
+        <div class="launcher-intro">
+          <p class="eyebrow">Laboratório</p>
+          <h2 id="launcher-title">Escolha uma atividade</h2>
+          <p id="launcher-copy">Cada botão acorda o microsserviço com parâmetros. O tabuleiro nasce no backend.</p>
+        </div>
+
+        <article class="featured-play">
+          <div>
+            <p class="eyebrow">Destaque</p>
+            <h3>Jogar com bot</h3>
+            <p>Uma partida completa contra a engine educacional. Ideal para treinar aberturas, meios-jogos e finais sem pressão de ranking.</p>
+            <ul class="featured-points">
+              <li>Nível pensado para estudantes</li>
+              <li>Dicas e lances legais quando precisar</li>
+              <li>O tabuleiro é servido pelo microsserviço</li>
+            </ul>
+          </div>
+          <button type="button" class="featured-cta" data-create="bot">
+            Jogar com bot
+            <small>Partida completa · bot iniciante</small>
+          </button>
+        </article>
+
+        <div id="challenge-groups" class="challenge-groups"></div>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="alert" hidden></div>
+  </body>
+</html>

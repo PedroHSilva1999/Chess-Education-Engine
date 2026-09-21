@@ -1,0 +1,9 @@
+{
+  "name": "chess-education-web",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/write-config.js && npx --yes serve -s . -l 4173",
+    "build": "node scripts/write-config.js",
+    "start": "npx --yes serve -s . -l 4173"
+  }
+}

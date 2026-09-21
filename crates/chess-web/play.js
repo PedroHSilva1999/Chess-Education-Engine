@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const pieces = {
     P: "♟", N: "♞", B: "♝", R: "♜", Q: "♛", K: "♚",
     p: "♟", n: "♞", b: "♝", r: "♜", q: "♛", k: "♚",
@@ -10,8 +11,13 @@
     escape_check: ["Escape do xeque", "Faça um movimento legal que retire seu rei do ataque."],
     capture: ["Treino de captura", "Capture a peça adversária indicada pelo exercício."],
     move_piece: ["Treino de movimento", "Leve a peça até a casa-alvo usando seu movimento correto."],
-    play_full_game: ["Partida completa", "Jogue uma partida contra uma engine ajustada ao nível educacional."],
+    play_full_game: ["Jogar com bot", "Jogue uma partida contra uma engine ajustada ao nível educacional."],
     best_move: ["Encontre o melhor lance", "Analise a posição e escolha a continuação mais forte."],
+    check: ["Dê xeque", "Atace o rei adversário com um lance legal."],
+    promote: ["Promoção", "Avance o peão até a última fileira e escolha a peça."],
+    win_material: ["Ganhe material", "Capture uma peça e fique com vantagem material."],
+    complete_sequence: ["Abertura", "Jogue o lance pedido para abrir a partida."],
+    reach_square: ["Alcance a casa", "Leve uma peça até a casa indicada."],
   };
   const messages = {
     objective_in_progress: "Movimento legal. Continue buscando o objetivo.",
@@ -23,80 +29,53 @@
 
   const state = { session: null, selected: null, busy: false, hint: null };
   const $ = (selector) => document.querySelector(selector);
-  const sessionId = location.pathname.match(/^\/play\/([0-9a-f-]+)$/i)?.[1];
+  const sessionId = parseSessionId(location.pathname);
 
   document.addEventListener("DOMContentLoaded", init);
 
   async function init() {
-    bindControls();
+    bindLauncherLinks();
+    $("#hint-button").addEventListener("click", requestHint);
+    $("#reset-button").addEventListener("click", resetSession);
     try {
       const health = await fetch("/health");
       if (!health.ok) throw new Error("Serviço indisponível");
       $("#connection").textContent = "online";
       $("#connection").classList.add("online");
-      if (sessionId) {
-        $("#launcher").hidden = true;
+      if (!sessionId) {
+        showExpired();
+        return;
+      }
+      try {
+        await loadSession();
+        $("#expired").hidden = true;
         $("#workspace").hidden = false;
-        try {
-          await loadSession();
-        } catch (error) {
-          if (error.status === 404) {
-            showLauncher(
-              "Sessão expirada",
-              "Esta sessão não existe mais, possivelmente porque o serviço foi reiniciado. Escolha uma nova atividade para continuar.",
-            );
-            history.replaceState(null, "", "/");
-            return;
-          }
-          throw error;
+      } catch (error) {
+        if (error.status === 404) {
+          showExpired();
+          return;
         }
-      } else {
-        showLauncher();
+        throw error;
       }
     } catch (error) {
       $("#connection").textContent = "offline";
-      showLauncher(
-        "Atividades temporariamente indisponíveis",
-        "Não foi possível conectar à engine. Tente novamente em alguns instantes.",
-      );
       showError(error);
     }
   }
 
-  function showLauncher(
-    title = "Escolha uma atividade",
-    copy = "As mesmas regras e o mesmo tabuleiro interpretam objetivos diferentes.",
-  ) {
-    state.session = null;
-    state.selected = null;
-    $("#workspace").hidden = true;
-    $("#launcher").hidden = false;
-    $("#page-title").textContent = "Laboratório de xadrez";
-    $("#launcher-title").textContent = title;
-    $("#launcher-copy").textContent = copy;
-  }
-
-  function bindControls() {
-    document.querySelectorAll("[data-create]").forEach((button) => {
-      button.addEventListener("click", () => createActivity(button.dataset.create));
+  function bindLauncherLinks() {
+    const home = launcherUrl();
+    ["#home-link", "#expired-home"].forEach((selector) => {
+      const link = $(selector);
+      if (home) link.href = home;
     });
-    $("#hint-button").addEventListener("click", requestHint);
-    $("#reset-button").addEventListener("click", resetSession);
   }
 
-  async function createActivity(kind) {
-    const requests = {
-      mate: { mode: "exercise", exercise: { type: "checkmate", difficulty: "beginner", max_moves: 1 } },
-      knight: { mode: "piece_training", piece: "knight", difficulty: "beginner", config: { show_legal_moves: true, number_of_tasks: 1 } },
-      escape: { mode: "exercise", exercise: { type: "check_escape", difficulty: "beginner", max_moves: 1 } },
-      game: { mode: "full_game", difficulty: "beginner", opponent: { type: "engine", difficulty: 2 } },
-    };
-    try {
-      const data = await api("/api/v1/sessions", { method: "POST", body: requests[kind] });
-      location.href = data.ui_url;
-    } catch (error) {
-      showError(error);
-    }
+  function showExpired() {
+    state.session = null;
+    $("#workspace").hidden = true;
+    $("#expired").hidden = false;
+    $("#page-title").textContent = "Sessão expirada";
   }
 
   async function loadSession() {
@@ -193,8 +172,7 @@
     }
     let promotion = knownPromotion || null;
     if (candidates.some((move) => move.promotion)) {
-      const answer = (prompt("Promover para queen, rook, bishop ou knight:", "queen") || "queen").toLowerCase();
-      promotion = ["queen", "rook", "bishop", "knight"].includes(answer) ? answer : "queen";
+      promotion = await askPromotion();
     }
     await withBusy(async () => {
       const result = await api(`/api/v1/sessions/${sessionId}/moves`, {
@@ -205,6 +183,21 @@
       state.session = await api(`/api/v1/sessions/${sessionId}`);
       setFeedback(result.feedback.message_key, result.valid ? "success" : "error");
       render();
+    });
+  }
+
+  function askPromotion() {
+    const dialog = $("#promotion");
+    dialog.hidden = false;
+    return new Promise((resolve) => {
+      const onClick = (event) => {
+        const piece = event.target.dataset.piece;
+        if (!piece) return;
+        dialog.hidden = true;
+        dialog.removeEventListener("click", onClick);
+        resolve(["queen", "rook", "bishop", "knight"].includes(piece) ? piece : "queen");
+      };
+      dialog.addEventListener("click", onClick);
     });
   }
 
@@ -256,6 +249,24 @@
       throw error;
     }
     return data;
+  }
+
+  function launcherUrl() {
+    const raw = String(window.CHESS_LAUNCHER_URL || "").trim();
+    if (!raw) return "";
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+      return url.origin;
+    } catch {
+      return "";
+    }
+  }
+
+  function parseSessionId(pathname) {
+    const match = pathname.match(/^\/play\/([0-9a-f-]+)$/i);
+    if (!match || !SESSION_ID_RE.test(match[1])) return null;
+    return match[1];
   }
 
   function parseFen(fen) {

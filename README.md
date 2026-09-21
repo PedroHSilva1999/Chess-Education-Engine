@@ -2,10 +2,9 @@
 
 Microsserviço leve e determinístico para criar atividades educacionais de xadrez. O projeto valida regras, controla sessões e objetivos no backend; a interface apenas apresenta o estado recebido da API.
 
+O frontend estático sobe na Vercel e só escolhe a atividade. O tabuleiro vive no microsserviço da Railway: ele fica parado até receber os parâmetros da sessão e então serve `/play/{id}`.
+
 O objetivo não é competir com o Stockfish. A prioridade é correção, simplicidade, extensibilidade e uma experiência adequada a estudantes.
-
-<img width="1259" height="905" alt="image" src="https://github.com/user-attachments/assets/ef168884-1ccc-4413-90b2-55468633cf04" />
-
 
 ## Estado do MVP
 
@@ -13,29 +12,24 @@ O objetivo não é competir com o Stockfish. A prioridade é correção, simplic
 - FEN, movimentos legais, captura, xeque, mate, afogamento, roque, promoção e en passant.
 - Dados para repetição de posição e regra dos cinquenta movimentos.
 - Exercícios dirigidos por JSON e objetivos compostáveis por contrato.
-- Mate em um, escape do xeque, captura, movimento de peça, jogo livre e partida contra engine.
+- Mate em um, escape do xeque, captura, movimento de peça, promoção, abertura, jogo livre e partida contra engine.
 - Engine educacional simples com material, alpha-beta/negamax, profundidade e tempo limitados.
 - Sessões isoladas por UUID, métricas e repositório em memória atrás de uma trait.
 - API REST e gRPC compartilhando o mesmo `SessionService`.
-- Tabuleiro web responsivo com clique, drag and drop, movimentos legais, último lance, promoção, dicas e progresso.
+- Interface web estática, com tabuleiro por clique e drag and drop, desafios e partida contra bot.
 - Docker multi-stage, usuário sem privilégios, filesystem somente leitura e healthcheck.
 - Testes unitários, de propriedade, PERFT, sessão e API.
 
-O adaptador Redis está deliberadamente fora do MVP. `SessionRepository` é o ponto de extensão para adicioná-lo sem alterar domínio, REST, gRPC ou interface. Com o repositório em memória, sessões não sobrevivem a reinícios e cada réplica tem seu próprio estado.
+O adaptador Redis está deliberadamente fora do MVP. `SessionRepository` é o ponto de extensão para adicioná-lo sem alterar domínio, REST, gRPC ou interface. Com o repositório em memória, sessões não sobrevivem a reinícios e cada réplica tem seu próprio estado. Na Railway, use uma instância.
 
 ## Arquitetura
 
 ```text
-REST :8080 ─┐
-            ├── SessionService ── SessionRepository
-gRPC :50051 ┘         │                  └── InMemory (MVP)
-                      ├── Education Engine
-                      │    ├── ExerciseFactory
-                      │    ├── PositionGenerator
-                      │    └── ExerciseValidator
-                      ├── Chess AI Engine
-                      └── ChessRulesEngine
-                           └── ShakmatyRules
+Vercel (web/)                 Railway (chess-api)
+catálogo ──POST parâmetros──► REST :$PORT
+          ◄── ui_url /play/id ──┘
+navegador ──────────────────► GET /play/{id}  (tabuleiro)
+                              gRPC :50051 (opcional)
 ```
 
 ```text
@@ -44,17 +38,43 @@ crates/
 ├── chess-engine/     Busca leve, limitada por tempo
 ├── chess-education/  Exercícios, objetivos e geradores data-driven
 ├── chess-session/    Estado, métricas, repositório e aplicação
-├── chess-api/        Adaptadores REST/gRPC e binário
-└── chess-web/        Interface estática embutida no binário
+└── chess-api/        Adaptadores REST/gRPC, tabuleiro em /play/{id} e binário
+web/                  Catálogo estático para a Vercel
+crates/chess-web/     HTML/CSS/JS do tabuleiro embutidos no microsserviço
 proto/
 └── chess.proto
 ```
 
 Dependências apontam para dentro: transporte depende da aplicação, que depende do domínio. O domínio nunca depende de Axum, Tonic ou do frontend.
 
-## Executar com Docker
+## Deploy
 
-Requisito: Docker com Compose.
+### Railway (API)
+
+1. Crie um serviço a partir deste repositório. O `Dockerfile` e o `railway.toml` já estão na raiz.
+2. Railway injeta `PORT`; o binário escuta em `0.0.0.0:$PORT`.
+3. Variáveis:
+
+| Variável | Uso |
+|---|---|
+| `FRONTEND_ORIGIN` | Origem da Vercel, por exemplo `https://seu-app.vercel.app`. Várias origens: lista separada por vírgula. Não use `*`. |
+| `PUBLIC_API_URL` | URL pública deste microsserviço, usada em `ui_url`. Ex.: `https://chess-api.up.railway.app`. |
+| `CORS_ORIGIN` | Alias de `FRONTEND_ORIGIN` se esta não existir. |
+| `RUST_LOG` | Opcional. Padrão `info`. |
+| `GRPC_ADDR` | Opcional. Padrão `0.0.0.0:50051`. |
+
+4. Healthcheck: `GET /health`.
+5. Copie a URL pública, por exemplo `https://chess-api.up.railway.app`.
+
+### Vercel (frontend)
+
+1. Root Directory: `web`.
+2. Variável de ambiente de **build**: `CHESS_API_URL=https://sua-api.up.railway.app` (sem barra no final).
+3. Depois do primeiro deploy, volte na Railway e confirme `FRONTEND_ORIGIN` com a URL final da Vercel, incluindo `https://`. O catálogo redireciona para `{CHESS_API_URL}/play/{id}`.
+
+## Executar localmente
+
+### Docker
 
 ```bash
 docker compose up --build
@@ -62,10 +82,10 @@ docker compose up --build
 
 Depois:
 
-- Interface e REST: `http://localhost:8080`
+- Interface (catálogo): `http://localhost:4173`
+- REST e tabuleiro: `http://localhost:8080`
 - gRPC: `localhost:50051`
 - Healthcheck: `http://localhost:8080/health`
-- Readiness: `http://localhost:8080/ready`
 
 Parar:
 
@@ -73,22 +93,35 @@ Parar:
 docker compose down
 ```
 
-## Executar com Rust
+### Rust + frontend estático
 
-Requisitos: Rust 1.95 ou superior. Em Windows com toolchain MSVC, instale também o Visual C++ Build Tools.
+Requisitos: Rust 1.95 ou superior e Node.js para o servidor estático. Em Windows com toolchain MSVC, instale também o Visual C++ Build Tools.
+
+Terminal 1:
 
 ```bash
 cargo run --release -p chess-api
 ```
 
-Variáveis:
+Terminal 2:
+
+```bash
+cd web
+npm run dev
+```
+
+A interface fica em `http://localhost:4173` e chama `http://localhost:8080`.
+
+Variáveis da API:
 
 | Variável | Padrão | Uso |
 |---|---:|---|
-| `HTTP_ADDR` | `0.0.0.0:8080` | Endereço REST/web |
+| `PORT` | `8080` | Porta REST quando `HTTP_ADDR` não existe |
+| `HTTP_ADDR` | — | Endereço REST completo; tem prioridade sobre `PORT` |
 | `GRPC_ADDR` | `0.0.0.0:50051` | Endereço gRPC |
 | `RUST_LOG` | `info` | Filtro de logs estruturados |
-| `CORS_ORIGIN` | `*` | Origem permitida; configure explicitamente em produção |
+| `FRONTEND_ORIGIN` | origens localhost | Origem permitida no CORS; obrigatória em produção |
+| `PUBLIC_API_URL` | — | URL pública do microsserviço para `ui_url` |
 
 ## REST API
 
@@ -107,7 +140,7 @@ curl -X POST http://localhost:8080/api/v1/sessions \
   }'
 ```
 
-A resposta inclui `session_id`, FEN, objetivo, movimentos legais, configuração de UI e `ui_url`. Abra `http://localhost:8080/play/{session_id}`.
+A resposta inclui `session_id`, FEN, objetivo, movimentos legais, configuração de UI e `ui_url`. Abra `{PUBLIC_API_URL}/play/{session_id}` — o tabuleiro é servido pelo microsserviço.
 
 ### Jogar
 
@@ -123,6 +156,7 @@ O feedback usa `message_key` e variáveis estruturadas. Tradução e textos long
 
 | Método | Rota | Função |
 |---|---|---|
+| `GET` | `/` | Descrição mínima da API |
 | `GET` | `/health` | Processo ativo |
 | `GET` | `/ready` | Serviço pronto |
 | `POST` | `/api/v1/sessions` | Cria sessão |
@@ -227,11 +261,12 @@ A busca roda em `spawn_blocking`, não no executor assíncrono do Tokio, e tem t
 - UUID v4 para sessões.
 - Limite de movimentos por exercício.
 - Busca limitada por profundidade, tempo e timeout.
-- CORS configurável.
+- CORS restrito a `FRONTEND_ORIGIN` em produção; sem `*`.
 - Erros públicos não expõem stack trace.
 - Container sem privilégios e filesystem read-only no Compose.
 - `x-request-id` criado ou propagado pela camada HTTP.
 - Logs JSON via `tracing`/`tracing-subscriber`.
+- A URL da API no frontend (`CHESS_API_URL`) não é um segredo; a chave de nenhum provedor de modelo entra no browser.
 
 Rate limiting deve ser aplicado no gateway/reverse proxy ou como uma nova camada Tower, conforme a política da plataforma. A engine não armazena dados pessoais.
 
@@ -277,4 +312,5 @@ O benchmark Criterion mede parsing FEN, geração de movimentos legais e aplica�
 - Bitboards nunca aparecem no contrato público.
 - O LLM futuro poderá selecionar, explicar e personalizar atividades, mas não validar movimentos nem decidir mate.
 - O frontend não conhece regras: recebe FEN, movimentos legais, objetivo e configuração da API.
+- Frontend e API são artefactos de deploy separados.
 - Não há Kafka, Kubernetes, CQRS, banco obrigatório ou múltiplos serviços no MVP.

@@ -16,11 +16,10 @@ RUN apt-get update \
     && useradd --system --uid 10001 --create-home chess
 COPY --from=builder /tmp/chess-education-engine /usr/local/bin/chess-education-engine
 USER chess
-ENV HTTP_ADDR=0.0.0.0:8080 \
+ENV PORT=8080 \
     GRPC_ADDR=0.0.0.0:50051 \
-    RUST_LOG=chess_api=info,tower_http=info \
-    CORS_ORIGIN=*
+    RUST_LOG=chess_api=info,tower_http=info
 EXPOSE 8080 50051
 HEALTHCHECK --interval=15s --timeout=3s --start-period=3s --retries=3 \
-    CMD ["curl", "--fail", "--silent", "http://127.0.0.1:8080/health"]
+    CMD ["sh", "-c", "curl --fail --silent \"http://127.0.0.1:${PORT:-8080}/health\""]
 ENTRYPOINT ["/usr/local/bin/chess-education-engine"]

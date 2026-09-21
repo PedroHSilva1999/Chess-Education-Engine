@@ -64,10 +64,10 @@ impl PositionGenerator for DefaultExerciseFactory {
                 "7k/8/5KQ1/8/8/8/8/8 w - - 0 1"
             }
             ExerciseType::CheckEscape => "4r2k/8/8/8/8/8/8/4K3 w - - 0 1",
-            ExerciseType::CaptureTraining => "4k3/4r3/8/8/8/8/4Q3/4K3 w - - 0 1",
+            ExerciseType::CaptureTraining => "4k3/8/8/8/4r3/8/8/4QK2 w - - 0 1",
             ExerciseType::PieceMovement => match piece.unwrap_or(Piece::Knight) {
                 Piece::Knight => "4k3/8/8/8/8/8/8/1N2K3 w - - 0 1",
-                Piece::Bishop => "4k3/8/8/8/8/8/8/2B1K3 w - - 0 1",
+                Piece::Bishop => "4k3/8/8/8/8/8/3B4/4K3 w - - 0 1",
                 Piece::Rook => "4k3/8/8/8/8/8/8/R3K3 w - - 0 1",
                 Piece::Queen => "4k3/8/8/8/8/8/8/3QK3 w - - 0 1",
                 Piece::King => "7k/8/8/8/8/8/8/4K3 w - - 0 1",
@@ -129,7 +129,7 @@ impl ExerciseFactory for DefaultExerciseFactory {
                 ExerciseType::CheckEscape => ObjectiveSpec::EscapeCheck,
                 ExerciseType::CaptureTraining => ObjectiveSpec::Capture {
                     piece: None,
-                    within_moves: config.and_then(|value| value.max_moves).or(Some(1)),
+                    within_moves: config.and_then(|value| value.max_moves).or(Some(2)),
                 },
                 ExerciseType::PieceMovement => ObjectiveSpec::MovePiece {
                     piece: request.piece.unwrap_or(Piece::Knight),
@@ -172,7 +172,7 @@ impl ExerciseFactory for DefaultExerciseFactory {
 mod tests {
     use super::*;
     use crate::{Difficulty, TrainingConfig};
-    use chess_core::ShakmatyRules;
+    use chess_core::{ChessRulesEngine, ShakmatyRules};
 
     #[test]
     fn creates_piece_training_from_data() {
@@ -195,5 +195,60 @@ mod tests {
             exercise.objective,
             ObjectiveSpec::MovePiece { .. }
         ));
+    }
+
+    #[test]
+    fn bishop_training_target_is_reachable_in_one_move() {
+        let factory = DefaultExerciseFactory::new(Arc::new(ShakmatyRules));
+        let exercise = factory
+            .create(&ExerciseRequest {
+                mode: SessionMode::PieceTraining,
+                exercise: None,
+                piece: Some(Piece::Bishop),
+                difficulty: Difficulty::Beginner,
+                config: TrainingConfig {
+                    target: Some("g5".to_owned()),
+                    ..TrainingConfig::default()
+                },
+                position: None,
+                objective: None,
+                player_color: None,
+                opponent: None,
+            })
+            .unwrap();
+        assert_eq!(
+            exercise.initial_position.fen,
+            "4k3/8/8/8/8/8/3B4/4K3 w - - 0 1"
+        );
+        let moves = ShakmatyRules
+            .legal_moves(&exercise.initial_position)
+            .unwrap();
+        assert!(
+            moves
+                .iter()
+                .any(|chess_move| chess_move.to.as_str() == "g5")
+        );
+    }
+
+    #[test]
+    fn creates_promotion_from_supplied_position() {
+        let factory = DefaultExerciseFactory::new(Arc::new(ShakmatyRules));
+        let exercise = factory
+            .create(&ExerciseRequest {
+                mode: SessionMode::Exercise,
+                exercise: None,
+                piece: None,
+                difficulty: Difficulty::Beginner,
+                config: TrainingConfig::default(),
+                position: Some(PositionSource {
+                    fen: Some("4k3/P7/8/8/8/8/8/4K3 w - - 0 1".to_owned()),
+                    generator: None,
+                }),
+                objective: Some(ObjectiveSpec::Promote),
+                player_color: None,
+                opponent: None,
+            })
+            .unwrap();
+        assert!(matches!(exercise.objective, ObjectiveSpec::Promote));
     }
 }
